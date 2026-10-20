@@ -1,0 +1,15 @@
+{
+  "name": "mod-claude-code",
+  "description": "Mods for Claude Code by Paolo Dalprato",
+  "owner": {
+    "name": "Paolo Dalprato",
+    "url": "https://github.com/paolodalprato"
+  },
+  "plugins": [
+    {
+      "name": "context-panel",
+      "source": "./context-panel",
+      "description": "Side panel showing what fills the context window, plus usage limits and session cost"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Types the engine writes when it loads a mod
+.claude-plugin/types/
+*/.claude-plugin/types/
+
+# Bundles unpacked by the engine
+.mcpb-cache/
+
+# Logs
+*.log
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
