@@ -7,6 +7,8 @@ export type Measure = {
   window: number
   percent?: number
   limits: LimitReading[]
+  // True when `limits` is the last non-empty reading, kept because the latest measurement had none.
+  limitsAreOld?: boolean
   costUsd?: number
 }
 

@@ -133,6 +133,16 @@ const limitLabel = (kind: string, iso: string | undefined, now: number) => {
   return reset ? `${name} - ${reset}` : name
 }
 
+// The engine draws System prompt and Free space in greys that fade into the
+// track of the bars, so the panel gives these two rows colours of their own.
+const PROMPT_COLOR = '#e879a8'
+const FREE_COLOR = '#a3e635'
+// The fill of the window, on the top bar and on Total used: neutral until the
+// window runs short, then the warning colour, then red close to auto-compaction.
+const fillColor = (percent: number) => (percent >= 95 ? '#ef4444' : percent >= 80 ? 'warning' : '#f3f4f6')
+const categoryColor = (c: { name: string; color: string; kind: string }) =>
+  c.kind === 'free' ? FREE_COLOR : /^system prompt$/i.test(c.name) ? PROMPT_COLOR : c.color
+
 const toMeasure = (u: {
   context: { tokens?: number; window: number; percent?: number }
   rateLimits: { kind: string; percentUsed: number; resetsAt?: string }[]
@@ -145,6 +155,13 @@ const toMeasure = (u: {
   costUsd: u.cost?.usd,
 })
 
+// A response that reports no limit window must not wipe the last reading: the
+// previous windows stay, marked as old, until a response reports them again.
+const keepLimits = (previous: Measure | null, next: Measure): Measure =>
+  next.limits.length > 0 || !previous || previous.limits.length === 0
+    ? next
+    : { ...next, limits: previous.limits, limitsAreOld: true }
+
 // Takes a breakdown of the window. 'summary' is a free local estimate;
 // 'full' sends token-count requests as /context does, so it runs only on request.
 const takeBreakdown = async ($: EngineInterface, detail: 'summary' | 'full') => {
@@ -152,7 +169,7 @@ const takeBreakdown = async ($: EngineInterface, detail: 'summary' | 'full') => 
   await update($, busy, () => true)
   try {
     const u = await $.session.usage({ breakdown: detail })
-    await update($, measure, () => toMeasure(u))
+    await update($, measure, cur => keepLimits(cur, toMeasure(u)))
     const b = u.context.breakdown
     if (!b) return
     // MCP tool schemas grouped by server, only those loaded in the window.
@@ -171,7 +188,7 @@ const takeBreakdown = async ($: EngineInterface, detail: 'summary' | 'full') => 
       totalTokens: b.totalTokens,
       maxTokens: b.rawMaxTokens,
       autoCompactThreshold: b.autoCompactThreshold,
-      categories: b.categories.map(c => ({ name: c.name, tokens: c.tokens, color: c.color, kind: c.kind })),
+      categories: b.categories.map(c => ({ name: c.name, tokens: c.tokens, color: categoryColor(c), kind: c.kind })),
       servers: [...byServer.values()].sort((a, z) => z.tokens - a.tokens),
       skillsTokens: b.skills?.tokens,
       memoryTokens: b.memoryFiles.reduce((s, f) => s + f.tokens, 0),
@@ -208,7 +225,7 @@ export const register: Register = on => {
     })
     try {
       const first = toMeasure(await $.session.usage())
-      await update($, measure, () => first)
+      await update($, measure, cur => keepLimits(cur, first))
     } catch {
       // No reading yet: the first session.measure fills it.
     }
@@ -245,7 +262,7 @@ export const register: Register = on => {
 
   // Every new reading of fill, limits or cost redraws the panel.
   on('session.measure', async ($, e, next) => {
-    await update($, measure, () => toMeasure(e))
+    await update($, measure, cur => keepLimits(cur, toMeasure(e)))
     return next(e)
   })
 
@@ -262,6 +279,57 @@ export const register: Register = on => {
     const label = Math.min(26, Math.floor(cols * 0.35))
     const barW = Math.max(8, cols - label - 16)
 
+    // The desktop app draws proportional text, where padded spaces and █░
+    // characters cannot line up. There the columns are fixed-width Boxes and
+    // the bars are filled Boxes; every other surface keeps the text layout.
+    const isDesktop = e.surface === 'desktop'
+    const FIG_W = 20
+    const gBarW = Math.max(8, cols - label - FIG_W - 4)
+    const TRACK = '#3a3a3a'
+    const gBar = (part: number, whole: number, width: number, color: string) => {
+      const g = bar(part, whole, width)
+      return (
+        <Box width={width} height={1} flexShrink={0}>
+          <Box width={g.on.length} height={1} backgroundColor={color} />
+          <Box width={g.off.length} height={1} backgroundColor={TRACK} />
+        </Box>
+      )
+    }
+    // One aligned row: a mark column, the label, the bar and the right-aligned figures.
+    // A Button takes only strings and Text as children, so a pressable row puts
+    // the mark and the name inside one Button and leaves the bar and figures outside it.
+    const gRow = (
+      mark: string,
+      name: string,
+      barNode: unknown,
+      figures: string,
+      indent = 0,
+      note?: string,
+      press?: { key: string; onPress: () => void },
+    ) => (
+      <Box flexDirection="row" gap={1} marginLeft={indent}>
+        {press ? (
+          <Box width={label + 2} flexShrink={0}>
+            <Button key={press.key} plain onPress={press.onPress}>
+              {mark} {name}
+            </Button>
+          </Box>
+        ) : (
+          <Box width={label + 2} flexShrink={0} flexDirection="row" gap={1}>
+            <Box width={1} flexShrink={0}>
+              <Text>{mark}</Text>
+            </Box>
+            <Text wrap="truncate-end">{name}</Text>
+          </Box>
+        )}
+        {barNode}
+        <Box width={FIG_W} flexShrink={0} justifyContent="flex-end">
+          <Text>{figures}</Text>
+        </Box>
+        {note ? <Text dimColor>{note}</Text> : null}
+      </Box>
+    )
+
     const total = m?.tokens
     const win = m?.window ?? b?.maxTokens ?? 0
     const totalBar = bar(total ?? 0, win, cols - 2)
@@ -273,6 +341,7 @@ export const register: Register = on => {
     const used = shown.filter(c => c.kind === 'used')
     const rest = shown.filter(c => c.kind !== 'used')
     const usedTokens = used.reduce((s, c) => s + c.tokens, 0)
+    const usedColor = fillColor(pct(usedTokens, b?.maxTokens ?? 0))
     // A row with a composition is a Button that opens or closes it below.
     const categoryRow = (c: (typeof shown)[number]) => {
       const cb = bar(c.tokens, b?.maxTokens ?? 0, barW)
@@ -298,7 +367,12 @@ export const register: Register = on => {
           <Text dimColor>{cb.off}</Text> {pct(c.tokens, b?.maxTokens ?? 0)}% {num(c.tokens)}
         </Text>
       )
+      const figures = `${pct(c.tokens, b?.maxTokens ?? 0)}% ${num(c.tokens)}`
+      const toggle = () => void update($, expanded, cur => (cur === c.name ? null : c.name))
+      const gCategory = (mark: string, press?: { key: string; onPress: () => void }) =>
+        gRow(mark, c.name, gBar(c.tokens, b?.maxTokens ?? 0, gBarW, c.color), figures, 0, undefined, press)
       if (items.length + extra.length === 0) {
+        if (isDesktop) return gCategory(' ')
         return (
           <Text>
             {'  '}
@@ -308,18 +382,18 @@ export const register: Register = on => {
         )
       }
       const top = items[0]?.tokens ?? 0
-      const itemBarW = Math.max(6, Math.floor(barW / 2))
+      const itemBarW = Math.max(6, Math.floor((isDesktop ? gBarW : barW) / 2))
       return (
         <Box flexDirection="column">
-          <Button
-            key={`cat-${c.name}`}
-            plain
-            onPress={() => void update($, expanded, cur => (cur === c.name ? null : c.name))}
-          >
-            {isOpen ? '▾ ' : '▸ '}
-            {pad(c.name, label - 2)}
-            {tail}
-          </Button>
+          {isDesktop ? (
+            gCategory(isOpen ? '▾' : '▸', { key: `cat-${c.name}`, onPress: toggle })
+          ) : (
+            <Button key={`cat-${c.name}`} plain onPress={toggle}>
+              {isOpen ? '▾ ' : '▸ '}
+              {pad(c.name, label - 2)}
+              {tail}
+            </Button>
+          )}
           {isOpen && extra.length > 0 && (
             <Box flexDirection="column">
               <Text dimColor>
@@ -327,6 +401,15 @@ export const register: Register = on => {
               </Text>
               {extra.map(it => {
                 const eb = bar(it.tokens, extra[0]?.tokens ?? it.tokens, itemBarW)
+                if (isDesktop)
+                  return gRow(
+                    ' ',
+                    it.name,
+                    gBar(it.tokens, extra[0]?.tokens ?? it.tokens, itemBarW, 'suggestion'),
+                    `~${num(it.tokens)}`,
+                    2,
+                    it.note,
+                  )
                 return (
                   <Text>
                     {'    '}
@@ -348,6 +431,8 @@ export const register: Register = on => {
           {isOpen &&
             items.map(it => {
               const ib = bar(it.tokens, top, itemBarW)
+              if (isDesktop)
+                return gRow(' ', it.name, gBar(it.tokens, top, itemBarW, c.color), num(it.tokens), 2, it.note)
               return (
                 <Text>
                   {'    '}
@@ -368,10 +453,14 @@ export const register: Register = on => {
           <Text dimColor>No reading yet. It arrives after the next response.</Text>
         ) : (
           <Box flexDirection="column">
-            <Text>
-              <Text color={(m?.percent ?? 0) >= 80 ? 'warning' : 'claude'}>{totalBar.on}</Text>
-              <Text dimColor>{totalBar.off}</Text>
-            </Text>
+            {isDesktop ? (
+              gBar(total, win, cols - 2, fillColor(m?.percent ?? pct(total, win)))
+            ) : (
+              <Text>
+                <Text color={fillColor(m?.percent ?? pct(total, win))}>{totalBar.on}</Text>
+                <Text dimColor>{totalBar.off}</Text>
+              </Text>
+            )}
             <Text>
               {m?.percent ?? pct(total, win)}% of {num(win)} tokens
             </Text>
@@ -384,10 +473,26 @@ export const register: Register = on => {
         {b && (
           <Box flexDirection="column">
             {used.map(categoryRow)}
-            {used.length > 0 && (
-              <Text weight="bold" color="suggestion">
+            {used.length > 0 && isDesktop && (
+              <Box flexDirection="row" gap={1}>
+                <Box width={1} flexShrink={0} />
+                <Box width={label} flexShrink={0}>
+                  <Text weight="bold" color={usedColor}>
+                    Total used
+                  </Text>
+                </Box>
+                {gBar(usedTokens, b.maxTokens, gBarW, usedColor)}
+                <Box width={FIG_W} flexShrink={0} justifyContent="flex-end">
+                  <Text weight="bold" color={usedColor}>
+                    {pct(usedTokens, b.maxTokens)}% {num(usedTokens)}
+                  </Text>
+                </Box>
+              </Box>
+            )}
+            {used.length > 0 && !isDesktop && (
+              <Text weight="bold" color={usedColor}>
                 {'  '}
-                {pad('Total used', label - 2)} <Text color="suggestion">{bar(usedTokens, b.maxTokens, barW).on}</Text>
+                {pad('Total used', label - 2)} <Text color={usedColor}>{bar(usedTokens, b.maxTokens, barW).on}</Text>
                 <Text dimColor>{bar(usedTokens, b.maxTokens, barW).off}</Text> {pct(usedTokens, b.maxTokens)}%{' '}
                 {num(usedTokens)}
               </Text>
@@ -411,6 +516,13 @@ export const register: Register = on => {
             <Text weight="bold">Loaded MCP servers, largest first</Text>
             {b.servers.slice(0, 6).map(s => {
               const sb = bar(s.tokens, b.servers[0]?.tokens ?? s.tokens, barW)
+              if (isDesktop)
+                return gRow(
+                  ' ',
+                  s.name,
+                  gBar(s.tokens, b.servers[0]?.tokens ?? s.tokens, gBarW, 'ide'),
+                  `${num(s.tokens)} (${toolCount(s.tools)})`,
+                )
               return (
                 <Text>
                   {pad(s.name, label)} <Text color="ide">{sb.on}</Text>
@@ -426,6 +538,13 @@ export const register: Register = on => {
         {(!m || m.limits.length === 0) && <Text dimColor>No limits reading.</Text>}
         {m?.limits.map(l => {
           const lb = bar(l.percentUsed, 100, barW)
+          if (isDesktop)
+            return gRow(
+              ' ',
+              limitLabel(l.kind, l.resetsAt, now),
+              gBar(l.percentUsed, 100, gBarW, l.percentUsed >= 80 ? 'warning' : 'success'),
+              `${l.percentUsed}%`,
+            )
           return (
             <Text>
               {pad(limitLabel(l.kind, l.resetsAt, now), label)}{' '}
@@ -434,6 +553,7 @@ export const register: Register = on => {
             </Text>
           )
         })}
+        {m?.limitsAreOld && <Text dimColor>Last limits reported</Text>}
         {m?.costUsd !== undefined && (
           <Text dimColor>Session cost: {m.costUsd.toFixed(2)} USD</Text>
         )}

@@ -95,9 +95,17 @@ test('the panel draws the fill and the limits from a measurement', async ($, on)
     expect(await ui.find({ type: 'Text', text: /^25% of 200,000 tokens$/ })).toBeTruthy()
     // The time to reset sits beside the name, so the row ends with the share.
     expect(await ui.find({ type: 'Text', text: /^Usage limits \/ reset$/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^5h win - 4h 33m .* 40%$/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^7d win - 2d 14h .* 10%$/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^Spend limit .* 5%$/ })).toBeTruthy()
+    if (surface === 'terminal') {
+      expect(await ui.find({ type: 'Text', text: /^5h win - 4h 33m .* 40%$/ })).toBeTruthy()
+      expect(await ui.find({ type: 'Text', text: /^7d win - 2d 14h .* 10%$/ })).toBeTruthy()
+      expect(await ui.find({ type: 'Text', text: /^Spend limit .* 5%$/ })).toBeTruthy()
+    } else {
+      // The desktop draws label and figures as separate cells of a row.
+      for (const [name, share] of [['5h win - 4h 33m', '40%'], ['7d win - 2d 14h', '10%'], ['Spend limit', '5%']]) {
+        expect(await ui.find({ type: 'Text', text: new RegExp(`^${name}$`) })).toBeTruthy()
+        expect(await ui.find({ type: 'Text', text: new RegExp(`^${share}$`) })).toBeTruthy()
+      }
+    }
     expect(await ui.find({ type: 'Text', text: /1\.50 USD/ })).toBeTruthy()
     await ui.unmount()
   }
@@ -185,5 +193,55 @@ test('a loaded skill is listed with its estimated tokens, every copy counted', a
     uuid: 'u3',
   })
   expect(await ui.find({ type: 'Text', text: /Loaded this session/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('the desktop draws the breakdown and its rows open', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({
+    command: 'context-panel',
+    args: '',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // A tree the surface refuses is not drawn at all, so finding the rows proves it was accepted.
+  expect(await ui.find({ type: 'Text', text: /^Total used$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /shape-request/ })).toBeFalsy()
+  await ui.press({ key: 'cat-Skills' })
+  expect(await ui.find({ type: 'Text', text: /shape-request/ })).toBeTruthy()
+  await ui.press({ key: 'cat-Skills' })
+  expect(await ui.find({ type: 'Text', text: /shape-request/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('a measurement without limits keeps the last reading, marked as old', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const five = { kind: 'five_hour', percentUsed: 40, resetsAt: new Date((4 * 60 + 33) * 60000).toISOString() }
+  const measure = (rateLimits: (typeof five)[]) =>
+    $.session.measure({
+      context: { tokens: 50000, window: 200000, percent: 25 },
+      rateLimits,
+      changed: rateLimits.length ? ['context', 'rateLimits'] : ['context'],
+    })
+  const note = { type: 'Text', text: /^Last limits reported$/ } as const
+
+  await measure([five])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find(note)).toBeFalsy()
+
+  // A response that reports no window leaves the old reading and says so.
+  await measure([])
+  expect(await ui.find({ type: 'Text', text: /^5h win - 4h 33m .* 40%$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /No limits reading/ })).toBeFalsy()
+  expect(await ui.find(note)).toBeTruthy()
+
+  // A new reading replaces it and the note goes.
+  await measure([{ ...five, percentUsed: 55 }])
+  expect(await ui.find({ type: 'Text', text: /^5h win - 4h 33m .* 55%$/ })).toBeTruthy()
+  expect(await ui.find(note)).toBeFalsy()
   await ui.unmount()
 })
