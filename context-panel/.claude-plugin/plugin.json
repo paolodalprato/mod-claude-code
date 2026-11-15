@@ -4,5 +4,6 @@
   "description": "Side panel showing what fills the context window, plus usage limits and session cost",
   "author": { "name": "Paolo Dalprato", "url": "https://github.com/paolodalprato" },
   "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/paolodalprato/mod-claude-code/blob/main/context-panel/README.md#privacy",
   "types": "./types/index.d.ts"
 }
