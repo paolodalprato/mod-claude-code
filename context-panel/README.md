@@ -65,6 +65,10 @@ A row with ▸ opens with a click and closes with a second click. In the desktop
 - The usage limits are the windows that the last response reported. When one response reports none, the panel shows the previous reading, which can be one response old.
 - The cost in USD is the figure Claude Code reports for the session. With a subscription it may not match what you pay.
 
+## Privacy
+
+The panel runs inside Claude Code on your computer. It reads the session's usage figures and, to list the skills loaded in the session, the text of the conversation. From that text it keeps only each skill's name, a character count and how many times the skill was loaded. It writes no files, makes no network requests of its own and sends nothing to any service. **Precise count** asks Claude Code to count the tokens, as `/context` does.
+
 ## Requirements
 
 - Claude Code with the hooks module API. Tested on version 2.1.325. The API can change between releases.
