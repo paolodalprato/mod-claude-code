@@ -122,9 +122,9 @@ const untilReset = (iso: string | undefined, now: number) => {
   if (!Number.isFinite(ms) || ms <= 0) return 'now'
   const min = Math.round(ms / 60000)
   if (min < 60) return `${min}m`
-  const h = Math.floor(min / 60)
-  if (h < 48) return `${h}h ${min % 60}m`
-  return `${Math.floor(h / 24)}d ${h % 24}h`
+  const hours = Math.floor(min / 60)
+  if (hours < 48) return `${hours}h ${min % 60}m`
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
 const limitLabel = (kind: string, iso: string | undefined, now: number) => {
