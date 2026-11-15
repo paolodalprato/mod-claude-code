@@ -1,7 +1,8 @@
 {
   "name": "context-panel",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Side panel showing what fills the context window, plus usage limits and session cost",
   "author": { "name": "Paolo Dalprato", "url": "https://github.com/paolodalprato" },
+  "license": "MIT",
   "types": "./types/index.d.ts"
 }

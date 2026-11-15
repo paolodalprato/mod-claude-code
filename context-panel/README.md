@@ -67,7 +67,7 @@ A row with ▸ opens with a click and closes with a second click. In the desktop
 
 ## Requirements
 
-- Claude Code with the hooks module API. Tested on version 2.1.305. The API is in early access and can change between releases.
+- Claude Code with the hooks module API. Tested on version 2.1.325. The API can change between releases.
 - Tested in the terminal and in the Code tab of Claude Desktop. The terminal draws the columns with text characters and the desktop app with fixed-width boxes, because it does not use a monospaced font; the panel picks the layout from the surface that draws it.
 
 ## Files

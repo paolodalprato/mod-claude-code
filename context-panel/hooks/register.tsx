@@ -301,7 +301,7 @@ export const register: Register = on => {
     const gRow = (
       mark: string,
       name: string,
-      barNode: unknown,
+      barNode: ReturnType<typeof gBar>,
       figures: string,
       indent = 0,
       note?: string,

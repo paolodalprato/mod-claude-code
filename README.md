@@ -22,7 +22,7 @@ Replace `<mod>` with the name in the table. Each mod's README has the exact line
 
 ## Requirements
 
-Mods use the hooks module API of Claude Code, which is in early access and can change between releases. Each mod's README states the version it was tested on.
+Mods use the hooks module API of Claude Code, which can change between releases. Each mod's README states the version it was tested on.
 
 ## License
 
